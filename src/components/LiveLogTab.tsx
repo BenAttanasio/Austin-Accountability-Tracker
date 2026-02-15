@@ -42,28 +42,26 @@ export default function LiveLogTab() {
 
     loadHistory();
 
-    // Connect SSE
-    const eventSource = new EventSource('/api/log-stream');
-
-    eventSource.onopen = () => setConnected(true);
-
-    eventSource.onmessage = (event) => {
-      try {
-        const entry = JSON.parse(event.data) as LogEntry;
-        setLogs(prev => {
-          const updated = [...prev, entry];
-          // Keep last 2000 entries
-          return updated.length > 2000 ? updated.slice(-1000) : updated;
-        });
-      } catch {}
+    // Listen for real-time log entries streamed from the scan endpoint
+    const handleLogEntry = (e: Event) => {
+      const entry = (e as CustomEvent).detail as LogEntry;
+      setConnected(true);
+      setLogs(prev => {
+        const updated = [...prev, entry];
+        return updated.length > 2000 ? updated.slice(-1000) : updated;
+      });
     };
 
-    eventSource.onerror = () => {
+    const handleScanComplete = () => {
       setConnected(false);
     };
 
+    window.addEventListener('scan-log', handleLogEntry);
+    window.addEventListener('scan-complete', handleScanComplete);
+
     return () => {
-      eventSource.close();
+      window.removeEventListener('scan-log', handleLogEntry);
+      window.removeEventListener('scan-complete', handleScanComplete);
     };
   }, []);
 

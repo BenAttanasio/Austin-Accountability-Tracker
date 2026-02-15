@@ -141,6 +141,8 @@ export async function updateEntities(
 
   function processRecord(r: Record<string, unknown>, dsKey: string, type: string) {
     const nameFields = [
+      'lgl_nm',              // contracts, purchase orders, echeckbook
+      'client_last_name',    // lobbyist clients
       'vendor_name', 'vendorname', 'vendor', 'payee_name', 'contractor_company',
       'donor_name', 'contributor_name', 'client_name', 'lobbyist_name', 'name',
     ];
@@ -169,19 +171,20 @@ export async function updateEntities(
     const entity = entityMap.get(key)!;
     entity.datasets.add(dsKey);
 
-    const addr = r['address'] || r['vendor_address'] || r['street_address'] || '';
+    const addr = r['ad_ln_1'] || r['client_adr1'] || r['address'] || r['vendor_address'] || r['street_address'] || '';
     if (addr && typeof addr === 'string') entity.addresses.add(addr);
 
-    const email = r['email'] || r['contact_email'] || '';
+    const email = r['contract_contact_email_ad'] || r['email'] || r['contact_email'] || '';
     if (email && typeof email === 'string') entity.contacts.add(email);
-    const phone = r['phone'] || r['contact_phone'] || '';
+    const phone = r['contract_contact_voice_ph_no'] || r['phone'] || r['contact_phone'] || '';
     if (phone && typeof phone === 'string') entity.contacts.add(phone);
 
-    const dept = r['department_name'] || r['department'] || '';
+    const dept = r['dept_nm'] || r['doc_dept_cd'] || r['department_name'] || r['department'] || '';
     if (dept && typeof dept === 'string') entity.departments.add(dept);
 
     const amount = parseFloat(String(
-      r['contract_amount'] || r['amount'] || r['total_amount'] || r['po_amount'] || r['payment_amount'] || 0
+      r['ma_prch_lmt_am'] || r['itm_tot_am'] || r['amount'] ||
+      r['contract_amount'] || r['total_amount'] || r['po_amount'] || r['payment_amount'] || 0
     ).replace(/[$,]/g, '')) || 0;
 
     if (type === 'donor') {

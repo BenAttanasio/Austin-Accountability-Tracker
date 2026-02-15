@@ -96,7 +96,8 @@ export interface Run {
 export interface DatasetConfig {
   id: string;
   name: string;
-  dateField: string;
+  dateField: string | null;
+  dateFilterMode?: 'date' | 'year'; // 'date' = ISO date comparison, 'year' = fiscal year string
   type: 'financial' | 'campaign' | 'lobbyist';
 }
 

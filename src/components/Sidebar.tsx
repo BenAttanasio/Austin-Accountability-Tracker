@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 
 interface SidebarProps {
@@ -21,21 +21,59 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   const { isAdmin } = useAuth();
   const [scanning, setScanning] = useState(false);
 
-  const startScan = async (type: 'manual_full' | 'manual_quick') => {
+  const startScan = useCallback(async (type: 'manual_full' | 'manual_quick') => {
     setScanning(true);
+    onTabChange('log');
+
     try {
-      await fetch('/api/scan', {
+      const response = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type }),
       });
-      onTabChange('log');
+
+      if (!response.body) {
+        console.error('No stream body in scan response');
+        return;
+      }
+
+      // Read the SSE stream and dispatch log entries as custom DOM events
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'log' && data.entry) {
+                window.dispatchEvent(new CustomEvent('scan-log', { detail: data.entry }));
+              } else if (data.type === 'complete') {
+                window.dispatchEvent(new CustomEvent('scan-complete', { detail: data }));
+              } else if (data.type === 'error') {
+                window.dispatchEvent(new CustomEvent('scan-log', {
+                  detail: { timestamp: new Date().toISOString(), source: 'SYSTEM', message: `Scan error: ${data.message}` },
+                }));
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+      }
     } catch (err) {
       console.error('Scan failed:', err);
     } finally {
       setScanning(false);
     }
-  };
+  }, [onTabChange]);
 
   return (
     <aside className="w-56 border-r border-border bg-surface flex flex-col shrink-0">

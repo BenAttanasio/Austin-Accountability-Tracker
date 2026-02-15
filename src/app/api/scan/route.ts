@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runScan, isScanRunning } from '@/lib/scanner';
-import { RunType } from '@/types';
+import { runScan, isScanRunning, addLogListener, removeLogListener } from '@/lib/scanner';
+import { RunType, LogEntry } from '@/types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes for Pro plan
@@ -14,36 +14,48 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const type: RunType = body.type || 'manual_full';
 
-    // Don't await - run in background and return immediately
-    const scanPromise = runScan(type);
+    // Stream logs back in real-time via SSE.
+    // The scan runs inside this same handler, so in-memory log listeners work.
+    const encoder = new TextEncoder();
 
-    // For quick scans, we can try to wait
-    if (type === 'manual_quick') {
-      try {
-        const result = await Promise.race([
-          scanPromise,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 55000)),
-        ]);
-        return NextResponse.json({ success: true, run: result });
-      } catch (error) {
-        if (error instanceof Error && error.message === 'timeout') {
-          return NextResponse.json({
-            success: true,
-            message: 'Scan started, running in background. Check /api/status for progress.',
+    const stream = new ReadableStream({
+      start(controller) {
+        const sendEvent = (data: Record<string, unknown>) => {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            // Stream closed by client
+          }
+        };
+
+        // Listen for all log entries broadcast during this scan
+        const listener = (entry: LogEntry) => {
+          sendEvent({ type: 'log', entry });
+        };
+        addLogListener(listener);
+
+        // Run the scan within this same execution context
+        runScan(type)
+          .then((run) => {
+            sendEvent({ type: 'complete', run_id: run.run_id, flags: run.flags_generated });
+          })
+          .catch((error) => {
+            const msg = error instanceof Error ? error.message : String(error);
+            sendEvent({ type: 'error', message: msg });
+          })
+          .finally(() => {
+            removeLogListener(listener);
+            try { controller.close(); } catch { /* already closed */ }
           });
-        }
-        throw error;
-      }
-    }
-
-    // For full scans, don't wait
-    scanPromise.catch(err => {
-      console.error('Background scan failed:', err);
+      },
     });
 
-    return NextResponse.json({
-      success: true,
-      message: 'Scan started. Monitor progress via the Live Log tab.',
+    return new NextResponse(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';

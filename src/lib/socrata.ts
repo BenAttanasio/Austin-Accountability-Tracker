@@ -6,30 +6,31 @@ const API_KEY_SECRET = process.env.SOCRATA_KEY_SECRET || '';
 const PAGE_SIZE = 50000;
 const MAX_RETRIES = 4;
 
-// Known dataset IDs
+// Known dataset IDs — verified against data.austintexas.gov
 export const DATASETS: Record<string, DatasetConfig> = {
   contracts: {
     id: '84ih-p28j',
     name: 'Contracts',
-    dateField: 'start_date',
+    dateField: 'efbgn_dt',
     type: 'financial',
   },
   purchase_orders: {
-    id: 'a5mz-4bkv',
+    id: '3ebq-e9iz',
     name: 'Purchase Orders',
-    dateField: 'po_date',
+    dateField: 'award_date',
     type: 'financial',
   },
   echeckbook: {
     id: '8c6z-qnmj',
     name: 'eCheckbook / Austin Finance Online',
-    dateField: 'fiscal_year_period',
+    dateField: 'chk_eft_iss_dt',
     type: 'financial',
   },
   budget: {
-    id: 'jmgf-hhk6',
+    id: 'yeeq-kk6v',
     name: 'Operating Budget vs Expenditures',
-    dateField: 'fiscal_year',
+    dateField: 'fy',
+    dateFilterMode: 'year',
     type: 'financial',
   },
   campaign_contributions: {
@@ -51,9 +52,9 @@ export const DATASETS: Record<string, DatasetConfig> = {
     type: 'campaign',
   },
   lobbyist_clients: {
-    id: 'kbpn-xpbc',
+    id: '7ena-g23u',
     name: 'Lobbyist Clients',
-    dateField: 'year',
+    dateField: null,
     type: 'lobbyist',
   },
 };
@@ -73,18 +74,31 @@ function makeAuthHeader(): Record<string, string> {
   return { Authorization: `Basic ${encoded}` };
 }
 
-function buildUrl(datasetId: string, limit: number, offset: number, mode: 'full' | 'quick', dateField: string): string {
+function buildUrl(
+  datasetId: string,
+  limit: number,
+  offset: number,
+  mode: 'full' | 'quick',
+  dateField: string | null,
+  dateFilterMode?: 'date' | 'year'
+): string {
   const base = `${SOCRATA_BASE}/${datasetId}.json`;
   const params = new URLSearchParams({
     $limit: limit.toString(),
     $offset: offset.toString(),
   });
 
-  if (mode === 'quick') {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
-    params.set('$where', `${dateField} >= '${dateStr}'`);
+  if (mode === 'quick' && dateField) {
+    if (dateFilterMode === 'year') {
+      // For fiscal year fields (e.g. fy = "2025"), filter by year string
+      const cutoffYear = new Date().getFullYear().toString();
+      params.set('$where', `${dateField} >= '${cutoffYear}'`);
+    } else {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
+      params.set('$where', `${dateField} >= '${dateStr}'`);
+    }
   }
 
   return `${base}?${params.toString()}`;
@@ -141,7 +155,7 @@ export async function fetchDataset(
   let hasMore = true;
 
   while (hasMore) {
-    const url = buildUrl(config.id, PAGE_SIZE, offset, options.mode, config.dateField);
+    const url = buildUrl(config.id, PAGE_SIZE, offset, options.mode, config.dateField, config.dateFilterMode);
     const page = await fetchWithRetry(url) as Record<string, unknown>[];
 
     allRecords.push(...page);

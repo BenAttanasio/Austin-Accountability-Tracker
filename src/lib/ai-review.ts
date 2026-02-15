@@ -3,7 +3,8 @@ import { getDatabase } from './mongodb';
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
-const BATCH_SIZE = 20;
+const BATCH_SIZE = 50;
+const MAX_FLAGS_FOR_AI = 200; // cap to control cost/time
 
 const SYSTEM_PROMPT = `You are a forensic financial auditor analyzing Austin, TX city government open data. You have been given flagged transactions that triggered automated anomaly detection, along with the entity's historical flag data if any exists. For each flag or group of related flags, provide:
 
@@ -113,14 +114,30 @@ export async function runAIReview(
     return results;
   }
 
+  // Prioritize flags by severity so the most important get reviewed first,
+  // then cap at MAX_FLAGS_FOR_AI to control cost.
+  const SEVERITY_RANK: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+  const indexedFlags = flags.map((f, i) => ({ flag: f, originalIndex: i }));
+  indexedFlags.sort((a, b) => (SEVERITY_RANK[b.flag.severity] || 0) - (SEVERITY_RANK[a.flag.severity] || 0));
+  const prioritized = indexedFlags.slice(0, MAX_FLAGS_FOR_AI);
+
+  const skipped = flags.length - prioritized.length;
+  if (skipped > 0) {
+    onLog?.({
+      timestamp: new Date().toISOString(),
+      source: 'AI',
+      message: `Prioritized top ${prioritized.length} flags by severity (skipping ${skipped} lower-priority flags)`,
+    });
+  }
+
   onLog?.({
     timestamp: new Date().toISOString(),
     source: 'AI',
-    message: `Sending ${flags.length} flags to Claude for review...`,
+    message: `Sending ${prioritized.length} flags to Claude for review...`,
   });
 
-  // Collect histories for all entities
-  const entityNames = [...new Set(flags.map(f => f.entity_name))];
+  // Collect histories for all entities in the prioritized set
+  const entityNames = [...new Set(prioritized.map(p => p.flag.entity_name))];
   const histories = new Map<string, { watchlist: WatchlistEntry | null; findings: Finding[] }>();
 
   for (const name of entityNames) {
@@ -128,14 +145,16 @@ export async function runAIReview(
   }
 
   // Process in batches
-  for (let i = 0; i < flags.length; i += BATCH_SIZE) {
-    const batch = flags.slice(i, i + BATCH_SIZE);
+  const flagsToReview = prioritized.map(p => p.flag);
+  for (let i = 0; i < flagsToReview.length; i += BATCH_SIZE) {
+    const batch = flagsToReview.slice(i, i + BATCH_SIZE);
 
     try {
       const batchResults = await callClaude(batch, histories);
 
       for (let j = 0; j < batchResults.length && j < batch.length; j++) {
-        results.set(i + j, batchResults[j]);
+        // Map back to the original flag index
+        results.set(prioritized[i + j].originalIndex, batchResults[j]);
       }
 
       onLog?.({
