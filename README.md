@@ -1,36 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Austin Accountability Tracker
 
-## Getting Started
+Public accountability tool that monitors Austin, TX city government spending using open data APIs. It autonomously fetches financial records, contracts, campaign contributions, and lobbyist data from data.austintexas.gov, then runs algorithmic anomaly detection and AI-powered analysis to flag potential irregularities, conflicts of interest, and suspicious patterns. Findings are stored persistently and escalated as patterns emerge over time.
 
-First, run the development server:
+## Local Setup
+
+```bash
+git clone <repo-url>
+cd austin-accountability-tracker
+npm install
+```
+
+Create `.env.local` with the following variables:
+
+```env
+# MongoDB Atlas connection string
+MONGODB_URI=mongodb+srv://...
+
+# Austin Open Data API credentials (get from data.austintexas.gov)
+SOCRATA_KEY_ID=your_key_id
+SOCRATA_KEY_SECRET=your_key_secret
+
+# Anthropic Claude API key (optional - Tier 1 analysis works without it)
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Admin password for the dashboard
+ADMIN_PASSWORD=your_password
+
+# Cron secret for Vercel scheduled runs
+CRON_SECRET=your_random_secret
+```
+
+Run locally:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MONGODB_URI` | Yes | MongoDB Atlas connection string |
+| `SOCRATA_KEY_ID` | Yes | Austin Open Data API key ID |
+| `SOCRATA_KEY_SECRET` | Yes | Austin Open Data API key secret |
+| `ANTHROPIC_API_KEY` | No | Enables AI-powered Tier 2 analysis |
+| `ADMIN_PASSWORD` | Yes | Password for admin dashboard access |
+| `CRON_SECRET` | Yes | Secret for authenticating cron requests |
 
-## Learn More
+## Deploy to Vercel
 
-To learn more about Next.js, take a look at the following resources:
+1. Push to GitHub
+2. Import project in Vercel
+3. Add all environment variables in Vercel project settings
+4. Deploy
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The daily cron job runs at 9 AM UTC (3 AM Central) automatically via `vercel.json` configuration.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Data Sources
 
-## Deploy on Vercel
+All data from [data.austintexas.gov](https://data.austintexas.gov) public Socrata APIs:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Contracts** (84ih-p28j) - City contracts and awards
+- **Purchase Orders** (a5mz-4bkv) - Commodity-level purchase orders
+- **eCheckbook** (8c6z-qnmj) - Austin Finance Online payment data
+- **Operating Budget** (jmgf-hhk6) - Budget vs actual expenditures
+- **Campaign Contributions** (3kfv-biw6) - Campaign finance donations
+- **Campaign Expenditures** (gd3e-xut2) - Campaign spending
+- **Campaign Loans** (teb3-cwz9) - Campaign finance loans
+- **Lobbyist Clients** (kbpn-xpbc) - Registered lobbyist clients
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## How the Analysis Works
+
+### Tier 1: Algorithmic Checks (No AI Required)
+
+1. **Vendor Address Clustering** - Flags multiple vendors sharing the same address
+2. **Vendor Anomaly Detection** - Flags new vendors with large payments, cross-department vendors, similar names
+3. **Spending Spike Detection** - Statistical outlier detection (>2 standard deviations)
+4. **Campaign-to-Contract Cross-Reference** - Fuzzy matches between donors and vendors
+5. **Lobbyist-to-Contract Cross-Reference** - Fuzzy matches between lobbyist clients and vendors
+6. **Duplicate Payment Detection** - Same amounts to same vendor within days
+7. **Contract Amendment Tracking** - Contracts exceeding original amount by >25%
+8. **Vague Description Flagging** - Contracts with generic or missing descriptions
+
+### Tier 2: AI Analysis (Requires Anthropic API Key)
+
+Flagged items are sent to Claude for forensic financial analysis with entity history context. The AI assesses severity, identifies patterns, and recommends investigative next steps.
+
+### Escalation System
+
+Entities build a reputation over time. Flag counts only increase. Severity only goes up. Entities with 3+ flags or CRITICAL severity are marked as priority investigations.
+
+## Legal Notice
+
+All data is sourced from public government APIs at data.austintexas.gov. Flags indicate statistical anomalies or pattern matches, **not confirmed wrongdoing**. This tool is designed to surface items worthy of further human review by investigative journalists, city auditors, and concerned citizens.

@@ -1,0 +1,19 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/daily-scan",
+      "schedule": "0 9 * * *"
+    }
+  ],
+  "functions": {
+    "src/app/api/cron/daily-scan/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/scan/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/export/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

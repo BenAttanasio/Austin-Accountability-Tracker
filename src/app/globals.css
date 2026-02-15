@@ -3,25 +3,81 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #0a0a0f;
+  --foreground: #e4e4e7;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, system-ui, sans-serif;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #111118;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+/* Severity badge styles */
+.badge-critical {
+  @apply bg-critical/20 text-critical border border-critical/30;
+}
+
+.badge-high {
+  @apply bg-high/20 text-high border border-high/30;
+}
+
+.badge-medium {
+  @apply bg-medium/20 text-medium border border-medium/30;
+}
+
+.badge-low {
+  @apply bg-low/20 text-low border border-low/30;
+}
+
+/* Log line animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.log-line {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Table styles */
+.data-table th {
+  @apply text-left text-xs uppercase tracking-wider text-muted font-medium px-4 py-3 border-b border-border;
+}
+
+.data-table td {
+  @apply px-4 py-3 border-b border-border/50 text-sm;
+}
+
+.data-table tr:hover td {
+  @apply bg-surface-2/50;
+}
+
+/* Pulse for running indicator */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
 }
