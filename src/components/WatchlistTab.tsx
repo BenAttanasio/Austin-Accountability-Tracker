@@ -24,6 +24,17 @@ interface Finding {
   created_at: string;
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export default function WatchlistTab() {
   const { isAdmin } = useAuth();
   const [entries, setEntries] = useState<WatchlistEntry[]>([]);
@@ -31,6 +42,7 @@ export default function WatchlistTab() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [entityFindings, setEntityFindings] = useState<Finding[]>([]);
   const [noteText, setNoteText] = useState('');
+  const [exporting, setExporting] = useState<string | null>(null);
 
   useEffect(() => {
     loadEntries();
@@ -78,6 +90,21 @@ export default function WatchlistTab() {
       body: JSON.stringify({ entity_name: entityName, notes: noteText }),
     });
     loadEntries();
+  };
+
+  const handleExportEntity = async (entityName: string) => {
+    setExporting(entityName);
+    try {
+      const res = await fetch(`/api/export?format=md&entity=${encodeURIComponent(entityName)}`);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const safeName = entityName.replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+      downloadBlob(blob, `entity-report-${safeName}-${new Date().toISOString().split('T')[0]}.md`);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(null);
+    }
   };
 
   if (loading) {
@@ -207,6 +234,17 @@ export default function WatchlistTab() {
                             <span className="text-muted text-sm">Loading history...</span>
                           )}
                         </div>
+                      </div>
+
+                      {/* Export entity report */}
+                      <div className="pt-2 border-t border-border">
+                        <button
+                          onClick={(ev) => { ev.stopPropagation(); handleExportEntity(e.entity_name); }}
+                          disabled={exporting === e.entity_name}
+                          className="px-3 py-1.5 bg-accent/10 text-accent border border-accent/30 rounded text-sm hover:bg-accent/20 transition-colors disabled:opacity-50"
+                        >
+                          {exporting === e.entity_name ? 'Generating Report...' : 'Export Entity Report'}
+                        </button>
                       </div>
 
                       {/* Admin notes */}

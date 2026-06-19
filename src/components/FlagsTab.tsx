@@ -19,6 +19,17 @@ interface Finding {
   run_id: string;
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export default function FlagsTab() {
   const { isAdmin } = useAuth();
   const [findings, setFindings] = useState<Finding[]>([]);
@@ -26,6 +37,7 @@ export default function FlagsTab() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [dismissReason, setDismissReason] = useState('');
+  const [exporting, setExporting] = useState<string | null>(null);
 
   // Filters
   const [severity, setSeverity] = useState('');
@@ -83,6 +95,21 @@ export default function FlagsTab() {
     setDismissReason('');
     setExpanded(null);
     loadFindings();
+  };
+
+  const handleExportFinding = async (finding: Finding) => {
+    setExporting(finding._id);
+    try {
+      const res = await fetch(`/api/export?format=md&ids=${finding._id}`);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const safeName = finding.entity_name.replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+      downloadBlob(blob, `flag-report-${safeName}-${new Date().toISOString().split('T')[0]}.md`);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(null);
+    }
   };
 
   const SortHeader = ({ field, children }: { field: string; children: React.ReactNode }) => (
@@ -205,7 +232,7 @@ export default function FlagsTab() {
                             </pre>
                           </div>
 
-                          <div className="flex gap-4 text-xs">
+                          <div className="flex gap-4 text-xs items-center">
                             <a
                               href={f.source_url}
                               target="_blank"
@@ -216,6 +243,13 @@ export default function FlagsTab() {
                             </a>
                             <span className="text-muted">Dataset: {f.source_dataset}</span>
                             <span className="text-muted">Run: {f.run_id?.substring(0, 8)}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleExportFinding(f); }}
+                              disabled={exporting === f._id}
+                              className="ml-auto px-2 py-1 bg-accent/10 text-accent border border-accent/30 rounded hover:bg-accent/20 transition-colors disabled:opacity-50"
+                            >
+                              {exporting === f._id ? 'Exporting...' : 'Export Report'}
+                            </button>
                           </div>
 
                           {isAdmin && (

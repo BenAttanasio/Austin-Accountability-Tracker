@@ -29,13 +29,46 @@ export async function GET(request: NextRequest) {
       filter.entity_name = { $in: watchlistNames.map(w => w.entity_name) };
     }
 
-    const [findings, total] = await Promise.all([
-      db.collection('findings')
+    // Severity sorts alphabetically wrong (CRITICAL > HIGH > LOW > MEDIUM).
+    // Use aggregation pipeline to map to numeric order for correct sorting.
+    let findingsPromise: Promise<Record<string, unknown>[]>;
+
+    if (sortBy === 'severity') {
+      findingsPromise = db.collection('findings')
+        .aggregate([
+          { $match: filter },
+          {
+            $addFields: {
+              _severityOrder: {
+                $switch: {
+                  branches: [
+                    { case: { $eq: ['$severity', 'CRITICAL'] }, then: 4 },
+                    { case: { $eq: ['$severity', 'HIGH'] }, then: 3 },
+                    { case: { $eq: ['$severity', 'MEDIUM'] }, then: 2 },
+                    { case: { $eq: ['$severity', 'LOW'] }, then: 1 },
+                  ],
+                  default: 0,
+                },
+              },
+            },
+          },
+          { $sort: { _severityOrder: sortDir, created_at: -1 } },
+          { $skip: offset },
+          { $limit: limit },
+          { $project: { _severityOrder: 0 } },
+        ])
+        .toArray();
+    } else {
+      findingsPromise = db.collection('findings')
         .find(filter)
         .sort({ [sortBy]: sortDir })
         .skip(offset)
         .limit(limit)
-        .toArray(),
+        .toArray();
+    }
+
+    const [findings, total] = await Promise.all([
+      findingsPromise,
       db.collection('findings').countDocuments(filter),
     ]);
 

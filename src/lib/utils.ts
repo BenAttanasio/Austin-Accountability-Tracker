@@ -1,9 +1,32 @@
+// Common business entity suffixes that inflate fuzzy match scores.
+// These are stripped before comparison so the distinctive prefix drives the score.
+const BUSINESS_SUFFIXES = [
+  // Legal entity types
+  'llc', 'inc', 'corp', 'ltd', 'co', 'lp', 'llp', 'pllc', 'pc', 'pa',
+  'company', 'incorporated', 'limited', 'corporation',
+  // Common generic business words
+  'enterprises', 'enterprise', 'international', 'intl',
+  'consultants', 'consultant', 'consulting',
+  'solutions', 'services', 'service',
+  'group', 'holdings', 'partners', 'partnership',
+  'associates', 'association', 'assoc',
+  'industries', 'industrial',
+  'technologies', 'technology', 'tech',
+  'management', 'systems', 'global', 'national',
+  'of', 'the', 'and', 'dba',
+];
+
+const SUFFIX_PATTERN = new RegExp(
+  '\\b(' + BUSINESS_SUFFIXES.join('|') + ')\\b',
+  'gi'
+);
+
 // String normalization for entity matching
 export function normalizeName(name: string): string {
   if (!name) return '';
   return name
     .toLowerCase()
-    .replace(/\b(llc|inc|corp|ltd|co|company|incorporated|limited|corporation)\b/gi, '')
+    .replace(SUFFIX_PATTERN, '')
     .replace(/[^a-z0-9\s]/g, '')
     .replace(/\s+/g, ' ')
     .trim();

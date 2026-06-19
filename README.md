@@ -88,6 +88,21 @@ All data from [data.austintexas.gov](https://data.austintexas.gov) public Socrat
 
 Flagged items are sent to Claude for forensic financial analysis with entity history context. The AI assesses severity, identifies patterns, and recommends investigative next steps.
 
+### Flags vs Watchlist
+
+**Flags** are individual findings — each one is a specific anomaly detected by a single analysis check during a scan (e.g., "spending spike of $500K to Vendor X" or "donor-vendor name match at 95% confidence"). A flag has its own severity, category, description, and source data. Flags can be dismissed by admins.
+
+**Watchlist entries** are entity-level roll-ups. When flags are generated, the escalation system groups them by entity (using normalized name matching) and creates or updates a watchlist entry. A watchlist entry tracks:
+
+- **`flag_count`** — cumulative total of all flags ever generated for that entity across all scans (only goes up)
+- **`highest_severity`** — the maximum severity across all of that entity's flags (only escalates, never downgrades)
+- **`related_entities`** — other entities that share addresses or contact info with this one
+- **`history`** — array of all finding IDs linked to this entity
+
+So the watchlist severity is **dynamically derived** — it's the highest severity of any flag that entity has ever received. If an entity starts with LOW flags and later gets a HIGH flag, the watchlist severity upgrades to HIGH permanently.
+
+**Priority Investigations** are watchlist entries where `flag_count >= 3` OR `highest_severity === 'CRITICAL'`. These appear at the top of the Watchlist tab with red highlighting.
+
 ### Escalation System
 
 Entities build a reputation over time. Flag counts only increase. Severity only goes up. Entities with 3+ flags or CRITICAL severity are marked as priority investigations.
@@ -95,3 +110,7 @@ Entities build a reputation over time. Flag counts only increase. Severity only 
 ## Legal Notice
 
 All data is sourced from public government APIs at data.austintexas.gov. Flags indicate statistical anomalies or pattern matches, **not confirmed wrongdoing**. This tool is designed to surface items worthy of further human review by investigative journalists, city auditors, and concerned citizens.
+
+## License
+
+Released under the [MIT License](LICENSE).

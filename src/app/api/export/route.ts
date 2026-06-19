@@ -11,11 +11,52 @@ export const maxDuration = 60;
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const format = searchParams.get('format') || 'csv';
+  const severitiesParam = searchParams.get('severities'); // comma-separated: "CRITICAL,HIGH"
+  const entityName = searchParams.get('entity'); // for single-entity export
+  const findingIds = searchParams.get('ids'); // comma-separated finding IDs
 
   try {
     const db = await getDatabase();
+    const filter: Record<string, unknown> = { dismissed: { $ne: true } };
+
+    // Severity filter
+    if (severitiesParam) {
+      const severities = severitiesParam.split(',').map(s => s.trim().toUpperCase());
+      filter.severity = { $in: severities };
+    }
+
+    // Single entity filter — use watchlist history for complete coverage,
+    // since the same entity can appear with different name formatting across scans.
+    if (entityName) {
+      const { ObjectId } = await import('mongodb');
+      const watchlistEntry = await db.collection('watchlist').findOne({ entity_name: entityName });
+      if (watchlistEntry?.history?.length) {
+        // Use the definitive list of finding IDs from the watchlist
+        const historyIds = watchlistEntry.history
+          .map((id: string | { toString(): string }) => {
+            try { return new ObjectId(String(id)); } catch { return null; }
+          })
+          .filter(Boolean);
+        filter._id = { $in: historyIds };
+      } else {
+        // Fallback: case-insensitive regex match
+        filter.entity_name = { $regex: new RegExp(`^${entityName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') };
+      }
+    }
+
+    // Specific finding IDs filter
+    if (findingIds) {
+      const { ObjectId } = await import('mongodb');
+      const ids = findingIds.split(',').map(id => {
+        try { return new ObjectId(id.trim()); } catch { return null; }
+      }).filter(Boolean);
+      if (ids.length > 0) {
+        filter._id = { $in: ids };
+      }
+    }
+
     const findings = await db.collection<Finding>('findings')
-      .find({ dismissed: { $ne: true } })
+      .find(filter)
       .sort({ severity: -1, created_at: -1 })
       .toArray();
     const watchlist = await db.collection<WatchlistEntry>('watchlist')
@@ -26,7 +67,8 @@ export async function GET(request: NextRequest) {
     if (format === 'csv') {
       return generateCSV(findings);
     } else {
-      return await generateReport(findings, watchlist);
+      const isTargeted = !!(entityName || findingIds);
+      return await generateReport(findings, watchlist, isTargeted);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -63,15 +105,24 @@ function generateCSV(findings: Finding[]): NextResponse {
   });
 }
 
-async function generateReport(findings: Finding[], watchlist: WatchlistEntry[]): Promise<NextResponse> {
+async function generateReport(findings: Finding[], watchlist: WatchlistEntry[], isTargeted = false): Promise<NextResponse> {
   const today = new Date().toISOString().split('T')[0];
   const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
   const highCount = findings.filter(f => f.severity === 'HIGH').length;
   const mediumCount = findings.filter(f => f.severity === 'MEDIUM').length;
   const lowCount = findings.filter(f => f.severity === 'LOW').length;
 
-  let report = `# Austin Accountability Tracker - Investigation Report\n\n`;
+  // Determine unique entities for targeted reports
+  const uniqueEntities = [...new Set(findings.map(f => f.entity_name))];
+  const reportTitle = isTargeted && uniqueEntities.length <= 3
+    ? `Targeted Report: ${uniqueEntities.join(', ')}`
+    : 'Investigation Report';
+
+  let report = `# Austin Accountability Tracker - ${reportTitle}\n\n`;
   report += `**Generated:** ${today}\n\n`;
+  if (isTargeted) {
+    report += `**Scope:** ${findings.length} findings for ${uniqueEntities.length} entit${uniqueEntities.length === 1 ? 'y' : 'ies'}\n\n`;
+  }
   report += `---\n\n`;
 
   // Executive Summary
@@ -81,8 +132,11 @@ async function generateReport(findings: Finding[], watchlist: WatchlistEntry[]):
   report += `- **HIGH:** ${highCount}\n`;
   report += `- **MEDIUM:** ${mediumCount}\n`;
   report += `- **LOW:** ${lowCount}\n`;
-  report += `- **Watchlist Entities:** ${watchlist.length}\n`;
-  report += `- **Priority Investigations (3+ flags or CRITICAL):** ${watchlist.filter(w => w.flag_count >= 3 || w.highest_severity === 'CRITICAL').length}\n\n`;
+  if (!isTargeted) {
+    report += `- **Watchlist Entities:** ${watchlist.length}\n`;
+    report += `- **Priority Investigations (3+ flags or CRITICAL):** ${watchlist.filter(w => w.flag_count >= 3 || w.highest_severity === 'CRITICAL').length}\n`;
+  }
+  report += `\n`;
 
   // If we have AI, generate a narrative summary
   if (ANTHROPIC_API_KEY && findings.length > 0) {
