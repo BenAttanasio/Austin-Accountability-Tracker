@@ -1,116 +1,134 @@
 # Austin Accountability Tracker
 
-Public accountability tool that monitors Austin, TX city government spending using open data APIs. It autonomously fetches financial records, contracts, campaign contributions, and lobbyist data from data.austintexas.gov, then runs algorithmic anomaly detection and AI-powered analysis to flag potential irregularities, conflicts of interest, and suspicious patterns. Findings are stored persistently and escalated as patterns emerge over time.
+Monitors Austin, TX city government spending through the city's own open data
+APIs. It fetches contracts, purchase orders, payments, budgets, campaign finance
+records and lobbyist registrations on a schedule, runs anomaly detection over
+them, and builds a reputation for every entity it sees. Findings persist, and
+entities that keep showing up get escalated.
 
-## Local Setup
+Everything it reads is public. The value is in cross-referencing datasets that
+the city publishes separately and nobody joins up.
+
+> Flags indicate statistical anomalies or pattern matches. They aren't evidence
+> of wrongdoing. This exists to surface items worth a human look, by
+> investigative journalists, city auditors, and residents.
+
+## Setup
 
 ```bash
-git clone <repo-url>
+git clone <your-fork>
 cd austin-accountability-tracker
 npm install
 ```
 
-Create `.env.local` with the following variables:
+Create `.env.local`:
 
-```env
-# MongoDB Atlas connection string
-MONGODB_URI=mongodb+srv://...
-
-# Austin Open Data API credentials (get from data.austintexas.gov)
-SOCRATA_KEY_ID=your_key_id
-SOCRATA_KEY_SECRET=your_key_secret
-
-# Anthropic Claude API key (optional - Tier 1 analysis works without it)
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Admin password for the dashboard
-ADMIN_PASSWORD=your_password
-
-# Cron secret for Vercel scheduled runs
-CRON_SECRET=your_random_secret
-```
-
-Run locally:
+| Variable | Required | What it's for |
+|---|---|---|
+| `MONGODB_URI` | Yes | MongoDB Atlas connection string |
+| `SOCRATA_KEY_ID` | Yes | Austin Open Data API key id, from data.austintexas.gov |
+| `SOCRATA_KEY_SECRET` | Yes | The matching secret |
+| `ADMIN_PASSWORD` | Yes | Admin dashboard access |
+| `CRON_SECRET` | Yes | Authenticates the scheduled run |
+| `ANTHROPIC_API_KEY` | No | Enables the AI pass. Tier 1 works without it |
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Then open http://localhost:3000.
 
-## Environment Variables
+To deploy, push to GitHub, import the project in Vercel, add the environment
+variables, and deploy. `vercel.json` schedules the daily run for 9:00 UTC, which
+is 3am Central.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `MONGODB_URI` | Yes | MongoDB Atlas connection string |
-| `SOCRATA_KEY_ID` | Yes | Austin Open Data API key ID |
-| `SOCRATA_KEY_SECRET` | Yes | Austin Open Data API key secret |
-| `ANTHROPIC_API_KEY` | No | Enables AI-powered Tier 2 analysis |
-| `ADMIN_PASSWORD` | Yes | Password for admin dashboard access |
-| `CRON_SECRET` | Yes | Secret for authenticating cron requests |
+## What it reads
 
-## Deploy to Vercel
+Eight Socrata datasets from [data.austintexas.gov](https://data.austintexas.gov):
 
-1. Push to GitHub
-2. Import project in Vercel
-3. Add all environment variables in Vercel project settings
-4. Deploy
+| Dataset | Id | What's in it |
+|---|---|---|
+| Contracts | `84ih-p28j` | City contracts and awards |
+| Purchase Orders | `a5mz-4bkv` | Commodity-level purchase orders |
+| eCheckbook | `8c6z-qnmj` | Austin Finance Online payment data |
+| Operating Budget | `jmgf-hhk6` | Budget against actual expenditure |
+| Campaign Contributions | `3kfv-biw6` | Donations |
+| Campaign Expenditures | `gd3e-xut2` | Campaign spending |
+| Campaign Loans | `teb3-cwz9` | Campaign finance loans |
+| Lobbyist Clients | `kbpn-xpbc` | Registered lobbyist clients |
 
-The daily cron job runs at 9 AM UTC (3 AM Central) automatically via `vercel.json` configuration.
+## Tier 1, the algorithmic checks
 
-## Data Sources
+These run without an API key and they're where most of the findings come from.
 
-All data from [data.austintexas.gov](https://data.austintexas.gov) public Socrata APIs:
+1. **Vendor address clustering.** Several vendors sharing one address.
+2. **Vendor anomalies.** New vendors receiving large payments, vendors appearing
+   across unrelated departments, near-identical names.
+3. **Spending spikes.** Statistical outliers more than two standard deviations
+   out.
+4. **Campaign donor to contract cross-reference.** Fuzzy name matching between
+   donors and vendors.
+5. **Lobbyist client to contract cross-reference.** The same, for lobbyist
+   clients.
+6. **Duplicate payments.** The same amount to the same vendor within days.
+7. **Contract amendments.** Contracts that grew more than 25% past their original
+   value.
+8. **Vague descriptions.** Contracts with generic or missing descriptions.
 
-- **Contracts** (84ih-p28j) - City contracts and awards
-- **Purchase Orders** (a5mz-4bkv) - Commodity-level purchase orders
-- **eCheckbook** (8c6z-qnmj) - Austin Finance Online payment data
-- **Operating Budget** (jmgf-hhk6) - Budget vs actual expenditures
-- **Campaign Contributions** (3kfv-biw6) - Campaign finance donations
-- **Campaign Expenditures** (gd3e-xut2) - Campaign spending
-- **Campaign Loans** (teb3-cwz9) - Campaign finance loans
-- **Lobbyist Clients** (kbpn-xpbc) - Registered lobbyist clients
+Checks 4 and 5 are the ones that need multiple datasets at once, and they're the
+reason this is a tool rather than a spreadsheet. The city publishes who donated
+and who got paid in two different places, and neither one references the other.
 
-## How the Analysis Works
+## Tier 2, the AI pass
 
-### Tier 1: Algorithmic Checks (No AI Required)
+Flagged items go to Claude with the entity's history attached. It assesses
+severity, identifies patterns across findings, and suggests what to look at next.
+It's optional, and the tool works without a key.
 
-1. **Vendor Address Clustering** - Flags multiple vendors sharing the same address
-2. **Vendor Anomaly Detection** - Flags new vendors with large payments, cross-department vendors, similar names
-3. **Spending Spike Detection** - Statistical outlier detection (>2 standard deviations)
-4. **Campaign-to-Contract Cross-Reference** - Fuzzy matches between donors and vendors
-5. **Lobbyist-to-Contract Cross-Reference** - Fuzzy matches between lobbyist clients and vendors
-6. **Duplicate Payment Detection** - Same amounts to same vendor within days
-7. **Contract Amendment Tracking** - Contracts exceeding original amount by >25%
-8. **Vague Description Flagging** - Contracts with generic or missing descriptions
+## Flags and the watchlist
 
-### Tier 2: AI Analysis (Requires Anthropic API Key)
+A **flag** is one finding from one check in one scan, like "spending spike of
+$500K to Vendor X" or "donor and vendor name match at 95% confidence". It carries
+its own severity, category, description, and source data, and an admin can
+dismiss it.
 
-Flagged items are sent to Claude for forensic financial analysis with entity history context. The AI assesses severity, identifies patterns, and recommends investigative next steps.
+A **watchlist entry** is the entity-level roll-up. When flags are generated, the
+escalation system groups them by entity using normalised name matching, then
+creates or updates that entity's entry:
 
-### Flags vs Watchlist
+| Field | Behaviour |
+|---|---|
+| `flag_count` | Every flag ever raised for that entity, across all scans. Only goes up |
+| `highest_severity` | The maximum severity the entity has ever hit. Only escalates |
+| `related_entities` | Others sharing an address or contact details |
+| `history` | Every finding id linked to the entity |
 
-**Flags** are individual findings — each one is a specific anomaly detected by a single analysis check during a scan (e.g., "spending spike of $500K to Vendor X" or "donor-vendor name match at 95% confidence"). A flag has its own severity, category, description, and source data. Flags can be dismissed by admins.
+Watchlist severity is derived rather than stored, so an entity that starts with
+LOW flags and later gets a HIGH one moves to HIGH permanently.
 
-**Watchlist entries** are entity-level roll-ups. When flags are generated, the escalation system groups them by entity (using normalized name matching) and creates or updates a watchlist entry. A watchlist entry tracks:
+**Priority investigations** are entries with `flag_count >= 3` or a `CRITICAL`
+severity, and they sit at the top of the Watchlist tab.
 
-- **`flag_count`** — cumulative total of all flags ever generated for that entity across all scans (only goes up)
-- **`highest_severity`** — the maximum severity across all of that entity's flags (only escalates, never downgrades)
-- **`related_entities`** — other entities that share addresses or contact info with this one
-- **`history`** — array of all finding IDs linked to this entity
+Making reputation cumulative and one-directional is the design decision that
+matters. Any single flag is weak on its own, since a large payment to a new
+vendor is usually just a large payment to a new vendor. The pattern worth
+looking at is an entity that keeps turning up across different checks and
+different months, and that pattern only exists if findings persist and accrue.
 
-So the watchlist severity is **dynamically derived** — it's the highest severity of any flag that entity has ever received. If an entity starts with LOW flags and later gets a HIGH flag, the watchlist severity upgrades to HIGH permanently.
+## Limitations
 
-**Priority Investigations** are watchlist entries where `flag_count >= 3` OR `highest_severity === 'CRITICAL'`. These appear at the top of the Watchlist tab with red highlighting.
-
-### Escalation System
-
-Entities build a reputation over time. Flag counts only increase. Severity only goes up. Entities with 3+ flags or CRITICAL severity are marked as priority investigations.
-
-## Legal Notice
-
-All data is sourced from public government APIs at data.austintexas.gov. Flags indicate statistical anomalies or pattern matches, **not confirmed wrongdoing**. This tool is designed to surface items worthy of further human review by investigative journalists, city auditors, and concerned citizens.
+- Austin only. The Socrata dataset ids are hardcoded, though the approach ports
+  to any city publishing on Socrata.
+- Name matching is fuzzy, so common surnames and company names generate false
+  positives. That's the cost of catching "Smith Construction LLC" against "Smith
+  Construction Company".
+- Data is only as current as the city's own publishing schedule, which varies by
+  dataset.
+- Flags never expire or decay. An entity flagged once carries it permanently,
+  which is deliberate and does mean the watchlist grows in one direction.
 
 ## License
 
-Released under the [MIT License](LICENSE).
+MIT. See [LICENSE](LICENSE).
+
+More at [benattanasio.com/lab](https://benattanasio.com/lab).
